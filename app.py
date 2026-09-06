@@ -23,14 +23,33 @@ from sheets_db import get_last_odometer, insert_record, load_records, delete_rec
 
 st.set_page_config(page_title="燃費管理", page_icon="🚗", layout="centered")
 
+
+def show_excel_sync_result(result):
+    """Excel同期の結果をユーザーに表示する（クラウド環境では何も表示しない）。"""
+    if not result or result["status"] == "not_configured":
+        return
+    if result["status"] == "locked":
+        st.warning("⚠️ Excelファイルが開いているため、Excelへの反映をスキップしました。閉じてから開き直すと反映されます。")
+    elif result["status"] == "synced":
+        if result["added"] > 0:
+            st.success(f"📗 既存Excelにも{result['added']}件反映しました。")
+        else:
+            st.caption("📗 Excelは最新の状態です。")
+
+
 # 自宅PCでこのアプリを開いたときだけ、既存Excel(ソリオ燃費早見表.xlsm)に
 # 前回までの未反映分をまとめて反映する（クラウド上やExcelが開いている場合は何もしない）。
 if "excel_catchup_done" not in st.session_state:
     try:
-        excel_sync.sync_records_to_excel(load_records())
+        catchup_result = excel_sync.sync_records_to_excel(load_records())
     except Exception:
-        pass
+        catchup_result = None
+    show_excel_sync_result(catchup_result)
     st.session_state["excel_catchup_done"] = True
+
+if st.session_state.pop("record_added", False):
+    st.success("記録しました！「履歴・グラフ」タブで確認できます。")
+    show_excel_sync_result(st.session_state.pop("last_excel_sync_result", None))
 
 
 # ---------------------------------------------------------------------------
@@ -143,10 +162,10 @@ with tab_add:
                 fuel_cost if fuel_cost > 0 else None, efficiency, note,
             )
             try:
-                excel_sync.sync_records_to_excel(load_records())
+                st.session_state["last_excel_sync_result"] = excel_sync.sync_records_to_excel(load_records())
             except Exception:
-                pass
-            st.success("記録しました！「履歴・グラフ」タブで確認できます。")
+                st.session_state["last_excel_sync_result"] = None
+            st.session_state["record_added"] = True
             st.cache_data.clear()
             st.rerun()
 

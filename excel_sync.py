@@ -90,27 +90,56 @@ def _find_formula_template(ws, last_row, col) -> str | None:
     return None
 
 
+def _status_file_path():
+    if not EXCEL_PATH:
+        return None
+    return os.path.join(os.path.dirname(EXCEL_PATH), "sync_status.txt")
+
+
+def _write_status_file(status: str, added: int, cloud_last_date: str = "", excel_last_date: str = ""):
+    path = _status_file_path()
+    if not path:
+        return
+    up_to_date = "true" if (status == "synced" and cloud_last_date == excel_last_date) else "false"
+    lines = [
+        f"checked_at={datetime.now().isoformat(timespec='seconds')}",
+        f"status={status}",
+        f"added={added}",
+        f"cloud_last_date={cloud_last_date}",
+        f"excel_last_date={excel_last_date}",
+        f"up_to_date={up_to_date}",
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def sync_records_to_excel(records_df: pd.DataFrame):
     """Googleスプレッドシート上の記録のうち、Excelにまだ無い日付の分を追記する。
-    戻り値: 追加した件数。ファイルが無い/開けない等で実行できなかった場合は None。
+    戻り値: {"status": "not_configured"|"locked"|"synced", "added": 追加件数} の dict。
     """
     if not is_available() or records_df is None or records_df.empty:
-        return None
+        return {"status": "not_configured", "added": 0}
+
+    cloud_last_date = records_df["record_date"].max().strftime("%Y-%m-%d") if not records_df.empty else ""
 
     try:
         _backup()
         wb = openpyxl.load_workbook(EXCEL_PATH, data_only=False, keep_vba=True)
     except PermissionError:
-        return None
+        _write_status_file("locked", 0, cloud_last_date)
+        return {"status": "locked", "added": 0}
 
     ws = wb[SHEET_NAME]
     last_row = _last_used_row(ws)
     existing = _existing_dates(ws, last_row)
+    excel_last_date = ws.cell(row=last_row, column=COL_DATE).value
+    excel_last_date = excel_last_date.strftime("%Y-%m-%d") if hasattr(excel_last_date, "strftime") else ""
 
     to_add = records_df[~records_df["record_date"].dt.strftime("%Y-%m-%d").isin(existing)]
     to_add = to_add.sort_values("record_date")
     if to_add.empty:
-        return 0
+        _write_status_file("synced", 0, cloud_last_date, excel_last_date)
+        return {"status": "synced", "added": 0}
 
     e_template = _find_formula_template(ws, last_row, COL_EFF) if last_row > 1 else None
     g_template = _find_formula_template(ws, last_row, COL_COST) if last_row > 1 else None
@@ -144,4 +173,5 @@ def sync_records_to_excel(records_df: pd.DataFrame):
         added += 1
 
     wb.save(EXCEL_PATH)
-    return added
+    _write_status_file("synced", added, cloud_last_date, cloud_last_date)
+    return {"status": "synced", "added": added}
