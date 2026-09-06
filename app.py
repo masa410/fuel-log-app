@@ -24,6 +24,27 @@ from sheets_db import get_last_odometer, insert_record, load_records, delete_rec
 st.set_page_config(page_title="燃費管理", page_icon="🚗", layout="centered")
 
 
+def check_password() -> bool:
+    """合い言葉を確認する。一度正しく入力すれば、同じブラウザセッション内は再入力不要。"""
+    if st.session_state.get("authenticated", False):
+        return True
+
+    def on_submit():
+        if st.session_state.get("password_input", "") == st.secrets.get("app_password", ""):
+            st.session_state["authenticated"] = True
+        else:
+            st.session_state["authenticated"] = False
+
+    st.text_input("合い言葉", type="password", on_change=on_submit, key="password_input")
+    if st.session_state.get("authenticated") is False:
+        st.error("合い言葉が違います。")
+    return False
+
+
+if not check_password():
+    st.stop()
+
+
 def show_excel_sync_result(result):
     """Excel同期の結果をユーザーに表示する（クラウド環境では何も表示しない）。"""
     if not result or result["status"] == "not_configured":
