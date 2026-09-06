@@ -15,7 +15,7 @@ import glob
 import os
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import openpyxl
 import pandas as pd
@@ -61,12 +61,26 @@ def _last_used_row(ws) -> int:
     return 1
 
 
+def _cell_date_str(v) -> str:
+    """日付セルの値を"YYYY-MM-DD"文字列にする。
+    大半の行はdatetimeで入っているが、シートの一部の古い行(2〜4行目)は
+    日付書式が適用されておらずExcelのシリアル値(数値)のまま保存されているため、
+    その場合も変換する（import_from_excel.pyのto_date()と同じ換算式）。
+    """
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, (int, float)):
+        return (datetime(1899, 12, 30) + timedelta(days=v)).strftime("%Y-%m-%d")
+    return ""
+
+
 def _existing_dates(ws, last_row) -> set:
     dates = set()
     for r in range(2, last_row + 1):
         v = ws.cell(row=r, column=COL_DATE).value
-        if hasattr(v, "strftime"):
-            dates.add(v.strftime("%Y-%m-%d"))
+        s = _cell_date_str(v)
+        if s:
+            dates.add(s)
     return dates
 
 
@@ -132,8 +146,7 @@ def sync_records_to_excel(records_df: pd.DataFrame):
     ws = wb[SHEET_NAME]
     last_row = _last_used_row(ws)
     existing = _existing_dates(ws, last_row)
-    excel_last_date = ws.cell(row=last_row, column=COL_DATE).value
-    excel_last_date = excel_last_date.strftime("%Y-%m-%d") if hasattr(excel_last_date, "strftime") else ""
+    excel_last_date = _cell_date_str(ws.cell(row=last_row, column=COL_DATE).value)
 
     to_add = records_df[~records_df["record_date"].dt.strftime("%Y-%m-%d").isin(existing)]
     to_add = to_add.sort_values("record_date")
