@@ -1,0 +1,20 @@
+# 秘密情報（絶対にコミットしない）
+.streamlit/secrets.toml
+*.json
+
+# ローカル専用データ（クラウド版はGoogleスプレッドシートに保存するため不要）
+fuel_log.db
+photos/
+
+# 作業ログ・一時ファイル
+pip_log.txt
+setup_log.txt
+test_log.txt
+check_imports.txt
+check_tesseract.txt
+import_log.txt
+done.txt
+
+# Python
+__pycache__/
+*.pyc
