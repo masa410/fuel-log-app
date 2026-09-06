@@ -1,6 +1,7 @@
-# 秘密情報（絶対にコミットしない）
+# 秘密情報・個人情報（絶対にコミットしない）
 .streamlit/secrets.toml
 *.json
+local_settings.py
 
 # ローカル専用データ（クラウド版はGoogleスプレッドシートに保存するため不要）
 fuel_log.db

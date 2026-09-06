@@ -20,10 +20,10 @@ from datetime import datetime
 import openpyxl
 import pandas as pd
 
-EXCEL_PATH = os.path.join(
-    os.path.expanduser("~"), "OneDrive", "デスクトップ", "真紀フォルダー",
-    "家計管理関連", "ソリオ燃費早見表.xlsm",
-)
+try:
+    from local_settings import EXCEL_PATH
+except ImportError:
+    EXCEL_PATH = None
 SHEET_NAME = "燃費確認表"
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "excel_backups")
 MAX_BACKUPS = 10
@@ -41,7 +41,7 @@ CELL_REF_RE = re.compile(r"(\$?)([A-Z]{1,3})(\$?)(\d+)")
 
 
 def is_available() -> bool:
-    return os.path.exists(EXCEL_PATH)
+    return bool(EXCEL_PATH) and os.path.exists(EXCEL_PATH)
 
 
 def _backup():
