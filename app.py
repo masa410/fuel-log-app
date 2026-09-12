@@ -1,8 +1,7 @@
 """
 燃費管理アプリ
 --------------------------------
-- メーター写真 / 給油レシート写真 を撮影・アップロード
-- OCRで数値を自動抽出（うまく読めない場合は手動で修正可能）
+- メーター表示・給油量・単価をシンプルなフォームで入力
 - 前回記録との差分から走行距離・燃費(km/L)を自動計算
 - 履歴をグラフで確認
 - データはGoogleスプレッドシートに保存 → PC・スマホ・外出先どこからでも同じデータにアクセス可能
@@ -10,34 +9,67 @@
 起動方法・セットアップは同じフォルダの README.md を参照してください。
 """
 
-import re
 from datetime import date
 
 import plotly.express as px
-import pytesseract
 import streamlit as st
-from PIL import Image
 
 import excel_sync
 from sheets_db import get_last_odometer, insert_record, load_records, delete_record
 
 st.set_page_config(page_title="燃費管理", page_icon="🚗", layout="centered")
 
+# 入力欄・ボタンを大きく見やすくするための共通スタイル
+st.markdown(
+    """
+    <style>
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stDateInput"] input {
+        font-size: 1.4rem !important;
+        padding: 0.6rem 0.75rem !important;
+        height: auto !important;
+    }
+    div[data-testid="stNumberInput"] label,
+    div[data-testid="stTextInput"] label,
+    div[data-testid="stDateInput"] label {
+        font-size: 1.05rem !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stButton"] button {
+        font-size: 1.2rem !important;
+        padding: 0.6rem 1.2rem !important;
+        height: auto !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 def check_password() -> bool:
-    """合い言葉を確認する。一度正しく入力すれば、同じブラウザセッション内は再入力不要。"""
+    """パスワードを確認する。一度正しく入力すれば、同じブラウザセッション内は再入力不要。"""
     if st.session_state.get("authenticated", False):
         return True
 
-    def on_submit():
-        if st.session_state.get("password_input", "") == st.secrets.get("app_password", ""):
+    st.title("🚗 燃費管理")
+    with st.form("password_form"):
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            pwd = st.text_input("パスワード", type="password")
+        with col2:
+            st.write("")
+            submitted = st.form_submit_button("→", use_container_width=True)
+
+    if submitted:
+        if pwd == st.secrets.get("app_password", ""):
             st.session_state["authenticated"] = True
+            st.rerun()
         else:
             st.session_state["authenticated"] = False
 
-    st.text_input("合い言葉", type="password", on_change=on_submit, key="password_input")
     if st.session_state.get("authenticated") is False:
-        st.error("合い言葉が違います。")
+        st.error("パスワードが違います。")
     return False
 
 
@@ -74,35 +106,12 @@ if st.session_state.pop("record_added", False):
 
 
 # ---------------------------------------------------------------------------
-# OCR ヘルパー
-# ---------------------------------------------------------------------------
-def ocr_best_number(image: Image.Image, decimals=False):
-    """画像から一番それらしい数値を推定して返す（読めなければ None）。"""
-    config = "--psm 6 -c tessedit_char_whitelist=0123456789.,"
-    try:
-        text = pytesseract.image_to_string(image, config=config)
-    except Exception:
-        return None, ""
-    candidates = re.findall(r"\d[\d,]*\.?\d*", text)
-    candidates = [c.replace(",", "") for c in candidates if c.replace(",", "").strip(".")]
-    if not candidates:
-        return None, text
-    # 一番桁数の多い（＝メーター値やレシート数量らしい）ものを採用
-    best = max(candidates, key=len)
-    try:
-        value = float(best) if (decimals or "." in best) else int(best)
-        return value, text
-    except ValueError:
-        return None, text
-
-
-# ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
 st.title("🚗 燃費管理")
-st.caption("メーターと給油の写真を撮るだけで、走行距離・燃費を自動記録します")
+st.caption("メーターと給油の数値を入力するだけで、走行距離・燃費を自動記録します")
 
-tab_add, tab_history = st.tabs(["📷 新しい記録を追加", "📊 履歴・グラフ"])
+tab_add, tab_history = st.tabs(["📝 新しい記録を追加", "📊 履歴・グラフ"])
 
 # --- 記録追加タブ -----------------------------------------------------------
 with tab_add:
@@ -114,47 +123,17 @@ with tab_add:
 
     record_date = st.date_input("日付", value=date.today())
 
-    st.subheader("① 走行距離メーター")
-    odo_input_mode = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True, key="odo_mode")
-    if odo_input_mode == "カメラで撮影":
-        odo_file = st.camera_input("メーターを撮影", key="odo_camera")
-    else:
-        odo_file = st.file_uploader("メーター写真を選択", type=["jpg", "jpeg", "png"], key="odo_upload")
-
-    odo_guess = None
-    if odo_file is not None:
-        odo_img = Image.open(odo_file)
-        odo_guess, odo_raw_text = ocr_best_number(odo_img)
-        with st.expander("OCR結果を確認（読み違えていたら下の欄で修正してください）"):
-            st.text(odo_raw_text or "(文字を検出できませんでした)")
-
     odometer_km = st.number_input(
-        "メーター表示 (km) ※OCRの自動読み取り結果。違っていたら修正してください",
-        min_value=0.0, value=float(odo_guess) if odo_guess else float(last_odo or 0), step=1.0,
+        "メーター表示 (km)",
+        min_value=0.0, value=float(last_odo or 0), step=1.0,
     )
 
-    st.subheader("② 給油レシート / 給油アプリ画面")
-    fuel_input_mode = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True, key="fuel_mode")
-    if fuel_input_mode == "カメラで撮影":
-        fuel_file = st.camera_input("レシート・アプリ画面を撮影", key="fuel_camera")
-    else:
-        fuel_file = st.file_uploader("レシート・アプリ画面の写真を選択", type=["jpg", "jpeg", "png"], key="fuel_upload")
+    fuel_liters = st.number_input(
+        "給油量 (L)",
+        min_value=0.0, value=0.0, step=0.1,
+    )
 
-    fuel_guess = None
-    if fuel_file is not None:
-        fuel_img = Image.open(fuel_file)
-        fuel_guess, fuel_raw_text = ocr_best_number(fuel_img, decimals=True)
-        with st.expander("OCR結果を確認（読み違えていたら下の欄で修正してください）"):
-            st.text(fuel_raw_text or "(文字を検出できませんでした)")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        fuel_liters = st.number_input(
-            "給油量 (L) ※OCRの自動読み取り結果。違っていたら修正してください",
-            min_value=0.0, value=float(fuel_guess) if fuel_guess else 0.0, step=0.1,
-        )
-    with col2:
-        fuel_cost = st.number_input("給油金額 (円・任意)", min_value=0.0, value=0.0, step=100.0)
+    fuel_cost = st.number_input("給油金額 (円・任意)", min_value=0.0, value=0.0, step=100.0)
 
     fuel_unit_price = st.number_input(
         "給油単価 (円/L・任意。金額と給油量から自動計算されます)",
@@ -165,7 +144,7 @@ with tab_add:
 
     note = st.text_input("メモ（任意）")
 
-    if st.button("この内容で記録する", type="primary"):
+    if st.button("この内容で記録する", type="primary", use_container_width=True):
         if fuel_liters <= 0:
             st.error("給油量を入力してください。")
         else:

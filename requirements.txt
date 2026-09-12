@@ -1,6 +1,4 @@
 streamlit
-pytesseract
-pillow
 pandas
 plotly
 requests
