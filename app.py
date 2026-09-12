@@ -11,7 +11,6 @@
 
 from datetime import date
 
-import plotly.express as px
 import streamlit as st
 
 import excel_sync
@@ -36,10 +35,20 @@ st.markdown(
         font-size: 1.05rem !important;
         font-weight: 600 !important;
     }
-    div[data-testid="stButton"] button {
+    div[data-testid="stButton"] button,
+    div[data-testid="stFormSubmitButton"] button {
         font-size: 1.2rem !important;
         padding: 0.6rem 1.2rem !important;
         height: auto !important;
+    }
+    div[data-testid="stButton"] button[kind="primary"],
+    div[data-testid="stFormSubmitButton"] button[kind="primary"] {
+        background-color: #e02424 !important;
+        color: #ffffff !important;
+        border-color: #e02424 !important;
+    }
+    div[data-testid="stDataFrame"] {
+        font-size: 1.1rem !important;
     }
     </style>
     """,
@@ -54,12 +63,12 @@ def check_password() -> bool:
 
     st.title("🚗 燃費管理")
     with st.form("password_form"):
-        col1, col2 = st.columns([5, 1])
+        col1, col2 = st.columns([3, 2])
         with col1:
             pwd = st.text_input("パスワード", type="password")
         with col2:
             st.write("")
-            submitted = st.form_submit_button("→", use_container_width=True)
+            submitted = st.form_submit_button("ログイン", type="primary", use_container_width=True)
 
     if submitted:
         if pwd == st.secrets.get("app_password", ""):
@@ -182,25 +191,17 @@ with tab_history:
         col3.metric("平均燃費", f"{avg_eff.mean():.2f} km/L" if len(avg_eff) else "―")
         col4.metric("累計給油金額", f"¥{df['fuel_cost'].sum():,.0f}")
 
-        st.subheader("燃費の推移")
-        eff_df = df.dropna(subset=["efficiency_km_per_l"])
-        if not eff_df.empty:
-            fig = px.line(eff_df, x="record_date", y="efficiency_km_per_l", markers=True,
-                           labels={"record_date": "日付", "efficiency_km_per_l": "燃費 (km/L)"})
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.subheader("週間走行距離")
-        dist_df = df.dropna(subset=["distance_km"])
-        if not dist_df.empty:
-            fig2 = px.bar(dist_df, x="record_date", y="distance_km",
-                           labels={"record_date": "日付", "distance_km": "走行距離 (km)"})
-            st.plotly_chart(fig2, use_container_width=True)
-
-        st.subheader("記録一覧")
+        st.subheader("📋 記録一覧")
         show_df = df[["record_date", "odometer_km", "distance_km", "fuel_liters",
                        "fuel_unit_price", "fuel_cost", "efficiency_km_per_l", "note"]].copy()
+        show_df["record_date"] = show_df["record_date"].dt.strftime("%Y/%m/%d")
         show_df.columns = ["日付", "メーター(km)", "走行距離(km)", "給油量(L)", "単価(円/L)", "金額(円)", "燃費(km/L)", "メモ"]
-        st.dataframe(show_df.sort_values("日付", ascending=False), use_container_width=True, hide_index=True)
+        st.dataframe(
+            show_df.sort_values("日付", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+            height=600,
+        )
 
         with st.expander("記録を削除する"):
             del_id = st.selectbox("削除する記録のID", df["id"].tolist())

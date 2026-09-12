@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 
 import openpyxl
 import pandas as pd
+from openpyxl.styles import Alignment
 
 try:
     from local_settings import EXCEL_PATH
@@ -175,6 +176,11 @@ def sync_records_to_excel(records_df: pd.DataFrame):
         date_cell = ws.cell(row=row, column=COL_DATE, value=rec["record_date"].to_pydatetime())
         fuel_cell = ws.cell(row=row, column=COL_FUEL, value=float(rec["fuel_liters"]))
         odo_cell = ws.cell(row=row, column=COL_ODO, value=float(rec["odometer_km"]))
+        # 表示形式に加えて中央揃えも明示する。openpyxlは新規に値を書いたセルへ
+        # 既存の見た目（列全体の中央揃え等）を自動で引き継がないため。
+        date_cell.alignment = Alignment(horizontal="center")
+        fuel_cell.alignment = Alignment(horizontal="center")
+        odo_cell.alignment = Alignment(horizontal="center")
         if date_fmt:
             date_cell.number_format = date_fmt
         if fuel_fmt:
@@ -183,21 +189,27 @@ def sync_records_to_excel(records_df: pd.DataFrame):
             odo_cell.number_format = odo_fmt
         if pd.notna(rec.get("fuel_unit_price")):
             price_cell = ws.cell(row=row, column=COL_PRICE, value=float(rec["fuel_unit_price"]))
+            price_cell.alignment = Alignment(horizontal="center")
             if price_fmt:
                 price_cell.number_format = price_fmt
 
         if e_template:
-            ws.cell(row=row, column=COL_EFF, value=_shift_formula(e_template, template_row, row))
+            cell = ws.cell(row=row, column=COL_EFF, value=_shift_formula(e_template, template_row, row))
+            cell.alignment = Alignment(horizontal="center")
         if g_template:
-            ws.cell(row=row, column=COL_COST, value=_shift_formula(g_template, template_row, row))
+            cell = ws.cell(row=row, column=COL_COST, value=_shift_formula(g_template, template_row, row))
+            cell.alignment = Alignment(horizontal="center")
         if i_template:
-            ws.cell(row=row, column=COL_DIST, value=_shift_formula(i_template, template_row, row))
+            cell = ws.cell(row=row, column=COL_DIST, value=_shift_formula(i_template, template_row, row))
+            cell.alignment = Alignment(horizontal="center")
 
         note = rec.get("note")
         if isinstance(note, str) and note.strip():
-            ws.cell(row=row, column=COL_NOTE, value=note)
+            note_cell = ws.cell(row=row, column=COL_NOTE, value=note)
+            note_cell.alignment = Alignment(horizontal="center")
         elif h_template:
-            ws.cell(row=row, column=COL_NOTE, value=_shift_formula(h_template, template_row, row))
+            note_cell = ws.cell(row=row, column=COL_NOTE, value=_shift_formula(h_template, template_row, row))
+            note_cell.alignment = Alignment(horizontal="center")
 
         added += 1
 

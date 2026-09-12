@@ -17,6 +17,7 @@ check_tesseract.txt
 import_log.txt
 done.txt
 sync_launch_log.txt
+sync_launch_err.txt
 
 # Python
 __pycache__/
