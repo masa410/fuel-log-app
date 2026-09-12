@@ -160,15 +160,31 @@ def sync_records_to_excel(records_df: pd.DataFrame):
     h_template = _find_formula_template(ws, last_row, COL_NOTE) if last_row > 1 else None
     template_row = last_row
 
+    # B/C/D/F列(日付・給油量・メーター値・単価)は値だけを書くセルのため数式は無いが、
+    # 単位付きの表示形式("m月d日"、"9.26ℓ"等)は前の行からコピーしないとデフォルト書式に
+    # 戻ってしまう(2026-09-12に実際に発生: 日付がyyyy-mm-dd表記になり単位も消えた)。
+    date_fmt = ws.cell(row=last_row, column=COL_DATE).number_format if last_row > 1 else None
+    fuel_fmt = ws.cell(row=last_row, column=COL_FUEL).number_format if last_row > 1 else None
+    odo_fmt = ws.cell(row=last_row, column=COL_ODO).number_format if last_row > 1 else None
+    price_fmt = ws.cell(row=last_row, column=COL_PRICE).number_format if last_row > 1 else None
+
     row = last_row
     added = 0
     for _, rec in to_add.iterrows():
         row += 1
-        ws.cell(row=row, column=COL_DATE, value=rec["record_date"].to_pydatetime())
-        ws.cell(row=row, column=COL_FUEL, value=float(rec["fuel_liters"]))
-        ws.cell(row=row, column=COL_ODO, value=float(rec["odometer_km"]))
+        date_cell = ws.cell(row=row, column=COL_DATE, value=rec["record_date"].to_pydatetime())
+        fuel_cell = ws.cell(row=row, column=COL_FUEL, value=float(rec["fuel_liters"]))
+        odo_cell = ws.cell(row=row, column=COL_ODO, value=float(rec["odometer_km"]))
+        if date_fmt:
+            date_cell.number_format = date_fmt
+        if fuel_fmt:
+            fuel_cell.number_format = fuel_fmt
+        if odo_fmt:
+            odo_cell.number_format = odo_fmt
         if pd.notna(rec.get("fuel_unit_price")):
-            ws.cell(row=row, column=COL_PRICE, value=float(rec["fuel_unit_price"]))
+            price_cell = ws.cell(row=row, column=COL_PRICE, value=float(rec["fuel_unit_price"]))
+            if price_fmt:
+                price_cell.number_format = price_fmt
 
         if e_template:
             ws.cell(row=row, column=COL_EFF, value=_shift_formula(e_template, template_row, row))
