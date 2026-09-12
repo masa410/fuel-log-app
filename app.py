@@ -110,7 +110,7 @@ if "excel_catchup_done" not in st.session_state:
     st.session_state["excel_catchup_done"] = True
 
 if st.session_state.pop("record_added", False):
-    st.success("記録しました！「履歴・グラフ」タブで確認できます。")
+    st.success("記録しました！「履歴」タブで確認できます。")
     show_excel_sync_result(st.session_state.pop("last_excel_sync_result", None))
 
 
@@ -120,7 +120,7 @@ if st.session_state.pop("record_added", False):
 st.title("🚗 燃費管理")
 st.caption("メーターと給油の数値を入力するだけで、走行距離・燃費を自動記録します")
 
-tab_add, tab_history = st.tabs(["📝 新しい記録を追加", "📊 履歴・グラフ"])
+tab_add, tab_history = st.tabs(["📝 新しい記録を追加", "📊 履歴"])
 
 # --- 記録追加タブ -----------------------------------------------------------
 with tab_add:
@@ -201,6 +201,9 @@ with tab_history:
             use_container_width=True,
             hide_index=True,
             height=600,
+            column_config={
+                "メモ": st.column_config.TextColumn("メモ", width=200),
+            },
         )
 
         with st.expander("記録を削除する"):
