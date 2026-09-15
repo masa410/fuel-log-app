@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>燃費管理アプリ 接続中</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0e1117;
+    color: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card { text-align: center; padding: 2rem; max-width: 320px; }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 4px solid #333;
+    border-top-color: #ff4b4b;
+    border-radius: 50%;
+    margin: 0 auto 1.5rem;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.5rem; }
+  .count { font-size: 2.2rem; font-weight: 700; color: #ff4b4b; margin: 0.5rem 0; }
+  .sub { color: #aaa; font-size: 0.9rem; min-height: 1.4em; }
+  .slow-msg { display: none; margin-top: 1rem; color: #f2c94c; font-size: 0.85rem; line-height: 1.5; }
+  a.manual {
+    display: inline-block; margin-top: 2rem;
+    color: #ff4b4b; text-decoration: none; font-size: 0.9rem;
+    border-bottom: 1px solid #ff4b4b; padding-bottom: 2px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h1>燃費管理アプリに接続中...</h1>
+    <div class="count" id="count">0秒経過</div>
+    <div class="sub" id="statusMsg">サーバーを起動しています</div>
+    <div class="slow-msg" id="slowMsg">時間がかかっています。しばらくお待ちいただくか、下のリンクから直接お試しください。</div>
+    <a class="manual" id="manualLink" href="https://fuel-log-app-agu7tjmesufecrryegrvjr.streamlit.app/" target="_top">今すぐ直接開く →</a>
+  </div>
+<script>
+  var APP_URL = "https://fuel-log-app-agu7tjmesufecrryegrvjr.streamlit.app/";
+  var seconds = 0;
+  var attempts = 0;
+  var MAX_ATTEMPTS = 60;
+  var countEl = document.getElementById('count');
+  var statusEl = document.getElementById('statusMsg');
+  var slowEl = document.getElementById('slowMsg');
+
+  var timer = setInterval(function () {
+    seconds++;
+    countEl.textContent = seconds + "秒経過";
+    if (seconds > 20) statusEl.textContent = "もう少しお待ちください";
+    if (seconds > 45) slowEl.style.display = "block";
+  }, 1000);
+
+  function checkAndRedirect() {
+    attempts++;
+    fetch(APP_URL, { mode: "no-cors", cache: "no-store" })
+      .then(function () {
+        clearInterval(timer);
+        window.location.href = APP_URL;
+      })
+      .catch(function () {
+        if (attempts < MAX_ATTEMPTS) {
+          setTimeout(checkAndRedirect, 3000);
+        } else {
+          clearInterval(timer);
+          statusEl.textContent = "自動接続に失敗しました。下のリンクからお試しください。";
+        }
+      });
+  }
+  checkAndRedirect();
+</script>
+</body>
+</html>
