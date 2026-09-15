@@ -39,42 +39,49 @@
     <h1>燃費管理アプリに接続中...</h1>
     <div class="count" id="count">0秒経過</div>
     <div class="sub" id="statusMsg">サーバーを起動しています</div>
-    <div class="slow-msg" id="slowMsg">時間がかかっています。しばらくお待ちいただくか、下のリンクから直接お試しください。</div>
+    <div class="slow-msg" id="slowMsg">時間がかかっています。もうしばらくお待ちください。90秒以内には自動的に開きます。</div>
     <a class="manual" id="manualLink" href="https://fuel-log-app-agu7tjmesufecrryegrvjr.streamlit.app/" target="_top">今すぐ直接開く →</a>
   </div>
 <script>
   var APP_URL = "https://fuel-log-app-agu7tjmesufecrryegrvjr.streamlit.app/";
+  var FORCE_REDIRECT_AT = 90; // この秒数までに繋がらなくても強制的に本体へ遷移する保険
   var seconds = 0;
-  var attempts = 0;
-  var MAX_ATTEMPTS = 60;
+  var redirected = false;
   var countEl = document.getElementById('count');
   var statusEl = document.getElementById('statusMsg');
   var slowEl = document.getElementById('slowMsg');
+
+  function doRedirect() {
+    if (redirected) return;
+    redirected = true;
+    clearInterval(timer);
+    window.location.href = APP_URL;
+  }
 
   var timer = setInterval(function () {
     seconds++;
     countEl.textContent = seconds + "秒経過";
     if (seconds > 20) statusEl.textContent = "もう少しお待ちください";
     if (seconds > 45) slowEl.style.display = "block";
+    if (seconds > 75) statusEl.textContent = "まもなく自動的に開きます";
+    if (seconds >= FORCE_REDIRECT_AT) doRedirect();
   }, 1000);
 
-  function checkAndRedirect() {
-    attempts++;
-    fetch(APP_URL, { mode: "no-cors", cache: "no-store" })
+  function checkOnce() {
+    if (redirected) return;
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function () { controller.abort(); }, 4000);
+    fetch(APP_URL, { mode: "no-cors", cache: "no-store", signal: controller.signal })
       .then(function () {
-        clearInterval(timer);
-        window.location.href = APP_URL;
+        clearTimeout(timeoutId);
+        doRedirect();
       })
       .catch(function () {
-        if (attempts < MAX_ATTEMPTS) {
-          setTimeout(checkAndRedirect, 3000);
-        } else {
-          clearInterval(timer);
-          statusEl.textContent = "自動接続に失敗しました。下のリンクからお試しください。";
-        }
+        clearTimeout(timeoutId);
+        if (!redirected) setTimeout(checkOnce, 3000);
       });
   }
-  checkAndRedirect();
+  checkOnce();
 </script>
 </body>
 </html>
