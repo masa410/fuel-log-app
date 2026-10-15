@@ -1,10 +1,9 @@
 """
-Excel(ソリオ燃費早見表.xlsm)を開く前に、デスクトップのランチャーから
-呼び出される単発同期スクリプト。
+Excel(ソリオ燃費早見表.xlsm)を開く前に、デスクトップのランチャーから呼び出される単発スクリプト。
+また、Excelシート上の「修正内容反映」ボタンからも呼び出される。
 
-Googleスプレッドシートの最新データをExcelファイルへ反映するだけで終了する
-(Streamlitのブラウザ画面は開かない)。Excelがまだ開いていないタイミングで
-実行することが前提(ランチャー側でこのスクリプト→Excel起動、の順に呼ぶこと)。
+Googleスプレッドシートの最新データを「ダウンロード」フォルダのCSVに書き出して終了する
+（Streamlitのブラウザ画面は開かない）。Excelへの反映は、Excel側のマクロがCSVを読んで行う。
 """
 
 import os
@@ -18,16 +17,18 @@ from sheets_db import load_records
 
 def main():
     if not excel_sync.is_available():
-        print("SYNC_SKIPPED: Excel file not found on this PC")
+        print("SYNC_SKIPPED: local_settings.py not found on this PC")
         return
 
     try:
-        result = excel_sync.sync_records_to_excel(load_records())
+        result = excel_sync.export_records_for_excel(load_records())
     except Exception as e:
         print(f"SYNC_ERROR: {e}")
         sys.exit(1)
 
     print(f"SYNC_RESULT: {result}")
+    if result.get("status") != "exported":
+        sys.exit(1)
 
 
 if __name__ == "__main__":

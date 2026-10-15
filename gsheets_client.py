@@ -117,6 +117,23 @@ class SheetsClient:
         )
         resp.raise_for_status()
 
+    def batch_update_rows(self, title: str, updates: list):
+        """updates: [(row_index, [値, ...]), ...]  row_index は get_all_values() のインデックス(0=ヘッダー行)。
+        各行を A列から上書きする。1回のAPI呼び出しでまとめて書く。"""
+        if not updates:
+            return
+        data = [
+            {"range": f"{title}!A{row_index + 1}", "values": [row]}
+            for row_index, row in updates
+        ]
+        resp = requests.post(
+            f"{API_BASE}/{self.spreadsheet_id}/values:batchUpdate",
+            headers=self._headers(),
+            json={"valueInputOption": "USER_ENTERED", "data": data},
+            timeout=30,
+        )
+        resp.raise_for_status()
+
     def delete_row(self, title: str, row_index: int):
         """row_index: get_all_values() の戻り値でのインデックス(0=ヘッダー行)。"""
         sheet_id = self.sheet_id_for(title)

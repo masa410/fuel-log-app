@@ -13,8 +13,12 @@ from datetime import date
 
 import streamlit as st
 
+import excel_check
 import excel_sync
-from sheets_db import get_last_odometer, insert_record, load_records, delete_record
+import record_edit
+from sheets_db import (
+    delete_record, get_last_odometer, insert_record, load_records, update_record,
+)
 
 st.set_page_config(page_title="燃費管理", page_icon="🚗", layout="centered")
 
@@ -87,23 +91,23 @@ if not check_password():
 
 
 def show_excel_sync_result(result):
-    """Excel同期の結果をユーザーに表示する（クラウド環境では何も表示しない）。"""
+    """Excel用データの書き出し結果を表示する（クラウド環境では何も表示しない）。"""
     if not result or result["status"] == "not_configured":
         return
-    if result["status"] == "locked":
-        st.warning("⚠️ Excelファイルが開いているため、Excelへの反映をスキップしました。閉じてから開き直すと反映されます。")
-    elif result["status"] == "synced":
-        if result["added"] > 0:
-            st.success(f"📗 既存Excelにも{result['added']}件反映しました。")
-        else:
-            st.caption("📗 Excelは最新の状態です。")
+    if result["status"] == "error":
+        st.warning("⚠️ Excel用のデータを書き出せませんでした。Excelへは反映されません。")
+    elif result["status"] == "exported":
+        st.caption(
+            f"📗 Excel用の最新データ（{result['count']}件）を書き出しました。"
+            "Excelを開く（または「修正内容反映」ボタン）と反映されます。"
+        )
 
 
-# 自宅PCでこのアプリを開いたときだけ、既存Excel(ソリオ燃費早見表.xlsm)に
-# 前回までの未反映分をまとめて反映する（クラウド上やExcelが開いている場合は何もしない）。
+# 自宅PCでこのアプリを開いたときだけ、既存Excel(ソリオ燃費早見表.xlsm)へ渡す
+# 最新データのCSVを書き出す（クラウド上では何もしない）。Excelへの書き込みはExcel側のマクロが行う。
 if "excel_catchup_done" not in st.session_state:
     try:
-        catchup_result = excel_sync.sync_records_to_excel(load_records())
+        catchup_result = excel_sync.export_records_for_excel(load_records())
     except Exception:
         catchup_result = None
     show_excel_sync_result(catchup_result)
@@ -111,6 +115,11 @@ if "excel_catchup_done" not in st.session_state:
 
 if st.session_state.pop("record_added", False):
     st.success("記録しました！「履歴」タブで確認できます。")
+    show_excel_sync_result(st.session_state.pop("last_excel_sync_result", None))
+
+_done_msg = st.session_state.pop("edit_done_message", None)
+if _done_msg:
+    st.success(_done_msg)
     show_excel_sync_result(st.session_state.pop("last_excel_sync_result", None))
 
 
@@ -171,7 +180,7 @@ with tab_add:
                 fuel_cost if fuel_cost > 0 else None, efficiency, note,
             )
             try:
-                st.session_state["last_excel_sync_result"] = excel_sync.sync_records_to_excel(load_records())
+                st.session_state["last_excel_sync_result"] = excel_sync.export_records_for_excel(load_records())
             except Exception:
                 st.session_state["last_excel_sync_result"] = None
             st.session_state["record_added"] = True
@@ -179,6 +188,75 @@ with tab_add:
             st.rerun()
 
 # --- 履歴タブ ---------------------------------------------------------------
+def _refresh_excel_export():
+    try:
+        st.session_state["last_excel_sync_result"] = excel_sync.export_records_for_excel(load_records())
+    except Exception:
+        st.session_state["last_excel_sync_result"] = None
+
+
+def render_edit_form(df, edit_id):
+    """選んだ記録の修正・削除フォーム。範囲外の入力は書き込まずに理由を表示する。"""
+    row = df[df["id"] == edit_id]
+    if row.empty:
+        st.session_state.pop("edit_id", None)
+        st.rerun()
+    row = row.iloc[0]
+    b = record_edit.edit_bounds(df, edit_id)
+    min_d = b["min_date"] or date(2000, 1, 1)
+
+    st.subheader("✏️ 記録を修正する")
+    st.caption(
+        f"日付は {min_d:%Y/%m/%d} ～ {b['max_date']:%Y/%m/%d} の範囲で変更できます。"
+        + (f" メーター値は {b['min_odo']:,.0f} km 以上" if b["min_odo"] is not None else "")
+        + (f"、{b['max_odo']:,.0f} km 以下" if b["max_odo"] is not None else "")
+        + ("。" if (b["min_odo"] is not None or b["max_odo"] is not None) else "")
+    )
+    k = f"_{edit_id}"
+    e_date = st.date_input("日付", value=row["record_date"].date(), min_value=min_d,
+                           max_value=b["max_date"], key="e_date" + k)
+    e_odo = st.number_input("メーター表示 (km)", min_value=0.0, value=float(row["odometer_km"]),
+                            step=1.0, key="e_odo" + k)
+    e_liters = st.number_input("給油量 (L)", min_value=0.0, value=float(row["fuel_liters"]),
+                               step=0.1, key="e_liters" + k)
+    cost0 = 0.0 if row["fuel_cost"] != row["fuel_cost"] else float(row["fuel_cost"])
+    price0 = 0.0 if row["fuel_unit_price"] != row["fuel_unit_price"] else float(row["fuel_unit_price"])
+    e_cost = st.number_input("給油金額 (円・任意)", min_value=0.0, value=cost0, step=100.0, key="e_cost" + k)
+    e_price = st.number_input("給油単価 (円/L・任意)", min_value=0.0, value=price0, step=1.0, key="e_price" + k)
+    e_note = st.text_input("メモ（任意）", value=row["note"] if isinstance(row["note"], str) else "",
+                           key="e_note" + k)
+
+    c1, c2, c3 = st.columns(3)
+    if c1.button("この内容で修正する", type="primary", use_container_width=True, key="e_save" + k):
+        ok, msg = update_record(edit_id, {
+            "record_date": e_date, "odometer_km": e_odo, "fuel_liters": e_liters,
+            "fuel_unit_price": e_price if e_price > 0 else None,
+            "fuel_cost": e_cost if e_cost > 0 else None, "note": e_note,
+        })
+        if ok:
+            _refresh_excel_export()
+            st.session_state["edit_done_message"] = msg
+            st.session_state.pop("edit_id", None)
+            st.rerun()
+        else:
+            st.error(msg)
+            st.toast(msg, icon="⚠️")
+    if c2.button("キャンセル", use_container_width=True, key="e_cancel" + k):
+        st.session_state.pop("edit_id", None)
+        st.rerun()
+    with c3:
+        confirm = st.checkbox("削除してよい", key="e_confirm" + k)
+    if st.button("🗑️ この記録を削除する", disabled=not confirm, key="e_delete" + k):
+        ok, msg = delete_record(edit_id)
+        if ok:
+            _refresh_excel_export()
+            st.session_state["edit_done_message"] = msg
+            st.session_state.pop("edit_id", None)
+            st.rerun()
+        else:
+            st.error(msg)
+
+
 with tab_history:
     df = load_records()
     if df.empty:
@@ -191,24 +269,40 @@ with tab_history:
         col3.metric("平均燃費", f"{avg_eff.mean():.2f} km/L" if len(avg_eff) else "―")
         col4.metric("累計給油金額", f"¥{df['fuel_cost'].sum():,.0f}")
 
+        edit_id = st.session_state.get("edit_id")
+        if edit_id is not None:
+            render_edit_form(df, edit_id)
+            st.divider()
+
         st.subheader("📋 記録一覧")
-        show_df = df[["record_date", "odometer_km", "distance_km", "fuel_liters",
-                       "fuel_unit_price", "fuel_cost", "efficiency_km_per_l", "note"]].copy()
+        st.caption("修正・削除したい行を選んで、下の「選択した記録を修正する」を押してください。")
+        ordered = df.sort_values(["record_date", "id"], ascending=False).reset_index(drop=True)
+        show_df = ordered[["record_date", "odometer_km", "distance_km", "fuel_liters",
+                           "fuel_unit_price", "fuel_cost", "efficiency_km_per_l", "note"]].copy()
         show_df["record_date"] = show_df["record_date"].dt.strftime("%Y/%m/%d")
         show_df.columns = ["日付", "メーター(km)", "走行距離(km)", "給油量(L)", "単価(円/L)", "金額(円)", "燃費(km/L)", "メモ"]
-        st.dataframe(
-            show_df.sort_values("日付", ascending=False),
+        event = st.dataframe(
+            show_df,
             use_container_width=True,
             hide_index=True,
             height=600,
+            on_select="rerun",
+            selection_mode="single-row",
             column_config={
                 "メモ": st.column_config.TextColumn("メモ", width=200),
             },
         )
+        picked = event.selection.rows if event and event.selection else []
+        if st.button("✏️ 選択した記録を修正する", disabled=not picked, type="primary"):
+            st.session_state["edit_id"] = int(ordered.iloc[picked[0]]["id"])
+            st.rerun()
 
-        with st.expander("記録を削除する"):
-            del_id = st.selectbox("削除する記録のID", df["id"].tolist())
-            if st.button("削除する", type="secondary"):
-                delete_record(del_id)
-                st.success("削除しました。")
-                st.rerun()
+        if excel_sync.is_available():
+            with st.expander("Excelとの確認（読み取りのみ・何も書き換えません）"):
+                if st.button("Excelの内容と照合する"):
+                    st.session_state["excel_check_result"] = excel_check.compare(df)
+                res = st.session_state.get("excel_check_result")
+                if res:
+                    st.write(res["summary"])
+                    if res["rows"]:
+                        st.dataframe(res["rows"], use_container_width=True, hide_index=True)

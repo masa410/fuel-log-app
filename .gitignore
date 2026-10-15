@@ -22,3 +22,9 @@ sync_launch_err.txt
 # Python
 __pycache__/
 *.pyc
+
+# 利用者のデータを含むファイル（公開リポジトリに載せない）
+*.xlsm
+sync_status.txt
+ソリオデスクトップロゴ/
+cloud_latest.csv
