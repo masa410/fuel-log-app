@@ -3,3 +3,5 @@ pandas
 requests
 pycryptodome
 openpyxl
+
+# 2026-10-15: 修正・削除機能の反映のため、実行環境を作り直す目的でコメントを追加（依存関係は変更なし）
