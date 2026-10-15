@@ -269,11 +269,6 @@ with tab_history:
         col3.metric("平均燃費", f"{avg_eff.mean():.2f} km/L" if len(avg_eff) else "―")
         col4.metric("累計給油金額", f"¥{df['fuel_cost'].sum():,.0f}")
 
-        edit_id = st.session_state.get("edit_id")
-        if edit_id is not None:
-            render_edit_form(df, edit_id)
-            st.divider()
-
         st.subheader("📋 記録一覧")
         st.caption("修正・削除したい行を選んで、下の「選択した記録を修正する」を押してください。")
         ordered = df.sort_values(["record_date", "id"], ascending=False).reset_index(drop=True)
@@ -293,9 +288,20 @@ with tab_history:
             },
         )
         picked = event.selection.rows if event and event.selection else []
+        if picked:
+            sel = ordered.iloc[picked[0]]
+            st.caption(f"選択中：{sel['record_date']:%Y/%m/%d}　{sel['odometer_km']:,.0f} km　{sel['fuel_liters']:.1f} L")
+        else:
+            st.caption("※ 行の左端のチェック（□）を押して選ぶと、下の「修正する」ボタンが押せます。")
         if st.button("✏️ 選択した記録を修正する", disabled=not picked, type="primary"):
             st.session_state["edit_id"] = int(ordered.iloc[picked[0]]["id"])
             st.rerun()
+
+        # 修正フォームは、ボタンのすぐ下に出す（一覧の下までスクロールしていても画面の外にならない）
+        edit_id = st.session_state.get("edit_id")
+        if edit_id is not None:
+            st.divider()
+            render_edit_form(df, edit_id)
 
         if excel_sync.is_available():
             with st.expander("Excelとの確認（読み取りのみ・何も書き換えません）"):
