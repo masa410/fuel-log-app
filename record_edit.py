@@ -28,6 +28,19 @@ def calc_distance_efficiency(prev_odo, odo, liters):
     return distance, efficiency
 
 
+def is_duplicate_of_last(df: pd.DataFrame, record_date, odometer_km, fuel_liters) -> bool:
+    """直前の記録（日付・IDの順で最後）と、日付・メーター・給油量がすべて同じなら True（二重記録の防止）。"""
+    if df is None or df.empty:
+        return False
+    last = _sorted(df).iloc[-1]
+    d = record_date.date() if hasattr(record_date, "date") else record_date
+    return (
+        last["record_date"].date() == d
+        and float(last["odometer_km"]) == float(odometer_km)
+        and float(last["fuel_liters"]) == float(fuel_liters)
+    )
+
+
 def _sorted(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values(["record_date", "id"]).reset_index(drop=True)
 

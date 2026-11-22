@@ -84,6 +84,7 @@ def insert_record(record_date, odometer_km, distance_km, fuel_liters, fuel_unit_
         created_at or datetime.now().isoformat(timespec="seconds"),
     ]
     client.append_row(SHEET_NAME, [str(v) for v in row])
+    return new_id
 
 
 def insert_records_bulk(records: list):

@@ -11,7 +11,9 @@
 
 from datetime import date
 
+import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 import excel_check
 import excel_sync
@@ -54,6 +56,20 @@ st.markdown(
     div[data-testid="stDataFrame"] {
         font-size: 1.1rem !important;
     }
+    /* 記録済みで押せないときのボタン（押せないことが分かる色） */
+    div[data-testid="stButton"] button[kind="primary"]:disabled {
+        background-color: #5a2a2a !important;
+        color: #999999 !important;
+        border-color: #5a2a2a !important;
+    }
+    /* ポップアップ：画面中央・大きい文字・大きいボタン */
+    div[data-testid="stDialog"] > div { align-items: center !important; }
+    div[data-testid="stDialog"] div[role="dialog"] { font-size: 1.3rem; }
+    div[data-testid="stDialog"] li { font-size: 1.35rem; line-height: 1.8; }
+    div[data-testid="stDialog"] p { font-size: 1.25rem; }
+    div[data-testid="stDialog"] button { font-size: 1.4rem !important; padding: 0.9rem 1.2rem !important; }
+    /* 履歴の装飾を消すための裏ボタン（画面には出さない。スクリプトが押す） */
+    .st-key-hlclear { display: none; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -113,14 +129,58 @@ if "excel_catchup_done" not in st.session_state:
     show_excel_sync_result(catchup_result)
     st.session_state["excel_catchup_done"] = True
 
-if st.session_state.pop("record_added", False):
-    st.success("記録しました！「履歴」タブで確認できます。")
-    show_excel_sync_result(st.session_state.pop("last_excel_sync_result", None))
+# 記録・修正・削除のあとのExcel用データの書き出し結果（完了メッセージ自体はポップアップで出す）
+show_excel_sync_result(st.session_state.pop("last_excel_sync_result", None))
 
-_done_msg = st.session_state.pop("edit_done_message", None)
-if _done_msg:
-    st.success(_done_msg)
-    show_excel_sync_result(st.session_state.pop("last_excel_sync_result", None))
+
+# ---------------------------------------------------------------------------
+# ポップアップ（画面中央・大きく表示。ボタンでしか閉じない）
+# ---------------------------------------------------------------------------
+@st.dialog("✅ 記録しました", width="large", dismissible=False)
+def dialog_record_done(rec):
+    dist = "―" if rec["distance_km"] is None else f"{rec['distance_km']:,.0f} km"
+    eff = "―" if rec["efficiency"] is None else f"{rec['efficiency']:.2f} km/L"
+    st.markdown(
+        "### 今回の入力が完了しました\n"
+        f"- 日付：{rec['record_date']:%Y/%m/%d}\n"
+        f"- メーター：{rec['odometer_km']:,.0f} km\n"
+        f"- 給油量：{rec['fuel_liters']:.1f} L\n"
+        f"- 走行距離：{dist}\n"
+        f"- 燃費：{eff}"
+    )
+    st.write("履歴画面へ切り替えて今回の入力内容を確認する場合は、下のボタンをタップしてください。")
+    c1, c2 = st.columns(2)
+    if c1.button("📊 履歴を見る", type="primary", use_container_width=True, key="dlg_go_history"):
+        st.session_state["hl_id"] = rec["id"]
+        st.session_state["go_history"] = True
+        st.rerun()
+    if c2.button("閉じる", use_container_width=True, key="dlg_close"):
+        st.rerun()
+
+
+@st.dialog("⚠️ 確認してください", width="large", dismissible=False)
+def dialog_warn(msg):
+    st.markdown(f"### {msg}")
+    if st.button("OK", type="primary", use_container_width=True, key="dlg_warn_ok"):
+        st.rerun()
+
+
+@st.dialog("✅ 完了", width="large", dismissible=False)
+def dialog_edit_done(msg):
+    st.markdown(f"### {msg}")
+    if st.button("OK", type="primary", use_container_width=True, key="dlg_done_ok"):
+        st.rerun()
+
+
+def clear_highlight():
+    st.session_state["hl_id"] = None
+
+
+def on_liters_change():
+    """給油量を入れ直したら、記録ボタンの鍵を外す（装飾は消す）。"""
+    if st.session_state.get("f_liters", 0) > 0:
+        st.session_state["locked"] = False
+    clear_highlight()
 
 
 # ---------------------------------------------------------------------------
@@ -132,60 +192,98 @@ st.caption("メーターと給油の数値を入力するだけで、走行距�
 tab_add, tab_history = st.tabs(["📝 新しい記録を追加", "📊 履歴"])
 
 # --- 記録追加タブ -----------------------------------------------------------
+S = st.session_state
+S.setdefault("locked", False)       # 記録した直後は True（給油量を入れ直すまで記録ボタンは使えない）
+S.setdefault("hl_id", None)         # 履歴で装飾する行のID
+S.setdefault("pending", None)       # 画面の最後に出すポップアップ
+S.setdefault("go_history", False)   # 「履歴を見る」を押した直後だけ True
+S.setdefault("form_nonce", 0)
+if "f_date" not in S:
+    S["reset_form"] = True
+
+# 裏ボタン（履歴の装飾を消す）。画面には出ない。
+st.button("hl", key="hlclear", on_click=clear_highlight)
+
 with tab_add:
     last_odo = get_last_odometer()
+    if S.pop("reset_form", False):
+        # 記録後（および最初）の入力欄：メーターは最新値、給油量・金額・単価は0、メモは空、日付は今日
+        S["f_date"] = date.today()
+        S["f_odo"] = float(last_odo or 0)
+        S["f_liters"] = 0.0
+        S["f_cost"] = 0.0
+        S["f_note"] = ""
+        S["form_nonce"] += 1
     if last_odo is not None:
         st.info(f"前回のメーター値: **{last_odo:,.0f} km**")
     else:
         st.info("まだ記録がありません。最初の記録を入力してください。")
 
-    record_date = st.date_input("日付", value=date.today())
+    record_date = st.date_input("日付", key="f_date", on_change=clear_highlight)
 
     odometer_km = st.number_input(
-        "メーター表示 (km)",
-        min_value=0.0, value=float(last_odo or 0), step=1.0,
+        "メーター表示 (km)", min_value=0.0, step=1.0, key="f_odo", on_change=clear_highlight,
     )
 
     fuel_liters = st.number_input(
-        "給油量 (L)",
-        min_value=0.0, value=0.0, step=0.1,
+        "給油量 (L)", min_value=0.0, step=0.1, key="f_liters", on_change=on_liters_change,
     )
 
-    fuel_cost = st.number_input("給油金額 (円・任意)", min_value=0.0, value=0.0, step=100.0)
+    fuel_cost = st.number_input(
+        "給油金額 (円・任意)", min_value=0.0, step=100.0, key="f_cost", on_change=clear_highlight,
+    )
 
     fuel_unit_price = st.number_input(
         "給油単価 (円/L・任意。金額と給油量から自動計算されます)",
         min_value=0.0,
         value=round(fuel_cost / fuel_liters, 1) if (fuel_cost > 0 and fuel_liters > 0) else 0.0,
         step=1.0,
+        key=f"f_price_{S['form_nonce']}",
+        on_change=clear_highlight,
     )
 
-    note = st.text_input("メモ（任意）")
+    note = st.text_input("メモ（任意）", key="f_note", on_change=clear_highlight)
 
-    if st.button("この内容で記録する", type="primary", use_container_width=True):
+    if S["locked"]:
+        st.caption("🔒 記録済みです。次の記録は、給油量を入力すると押せるようになります。")
+    if st.button("この内容で記録する", type="primary", use_container_width=True, disabled=S["locked"]):
+        S["locked"] = True  # 先に鍵をかける（二重記録の防止）
+        df_now = load_records()
         if fuel_liters <= 0:
-            st.error("給油量を入力してください。")
+            S["locked"] = False
+            S["pending"] = ("warn", "給油量を入力してください。")
+        elif last_odo is not None and odometer_km < last_odo:
+            S["locked"] = False
+            S["pending"] = ("warn", "メーター値が前回より小さくなっています。値を確認してください。（記録していません）")
+        elif record_edit.is_duplicate_of_last(df_now, record_date, odometer_km, fuel_liters):
+            S["locked"] = False
+            S["pending"] = ("warn", "直前の記録と同じ内容です。二重記録を防ぐため、記録していません。")
         else:
             distance_km = None
             if last_odo is not None:
                 distance_km = round(odometer_km - last_odo, 1)
-                if distance_km < 0:
-                    st.warning("メーター値が前回より小さくなっています。値を確認してください。距離は保存しません。")
-                    distance_km = None
             efficiency = round(distance_km / fuel_liters, 2) if distance_km else None
-
-            insert_record(
-                record_date, odometer_km, distance_km, fuel_liters,
-                fuel_unit_price if fuel_unit_price > 0 else None,
-                fuel_cost if fuel_cost > 0 else None, efficiency, note,
-            )
             try:
-                st.session_state["last_excel_sync_result"] = excel_sync.export_records_for_excel(load_records())
+                new_id = insert_record(
+                    record_date, odometer_km, distance_km, fuel_liters,
+                    fuel_unit_price if fuel_unit_price > 0 else None,
+                    fuel_cost if fuel_cost > 0 else None, efficiency, note,
+                )
             except Exception:
-                st.session_state["last_excel_sync_result"] = None
-            st.session_state["record_added"] = True
+                S["locked"] = False
+                S["pending"] = ("warn", "記録できませんでした。通信状態を確認して、もう一度お試しください。")
+                st.rerun()
+            try:
+                S["last_excel_sync_result"] = excel_sync.export_records_for_excel(load_records())
+            except Exception:
+                S["last_excel_sync_result"] = None
+            S["pending"] = ("done", {
+                "id": new_id, "record_date": record_date, "odometer_km": odometer_km,
+                "fuel_liters": fuel_liters, "distance_km": distance_km, "efficiency": efficiency,
+            })
+            S["reset_form"] = True
             st.cache_data.clear()
-            st.rerun()
+        st.rerun()
 
 # --- 履歴タブ ---------------------------------------------------------------
 def _refresh_excel_export():
@@ -193,6 +291,23 @@ def _refresh_excel_export():
         st.session_state["last_excel_sync_result"] = excel_sync.export_records_for_excel(load_records())
     except Exception:
         st.session_state["last_excel_sync_result"] = None
+
+
+def _fmt_num(v):
+    """数値の表示（小数は4桁までで末尾の0を消す。空欄は空）。"""
+    if v is None or v != v:
+        return ""
+    return f"{v:.4f}".rstrip("0").rstrip(".")
+
+
+def style_highlight(show_df, hl_pos):
+    """指定の行だけ、黄色の背景＋黒の太字にした表を返す。"""
+    def paint(row):
+        if row.name != hl_pos:
+            return [""] * len(row)
+        return ["background-color:#ffe94d; color:#000; font-weight:800"] * len(row)
+    num_cols = [c for c in show_df.columns if c not in ("日付", "メモ")]
+    return show_df.style.apply(paint, axis=1).format({c: _fmt_num for c in num_cols}, na_rep="")
 
 
 def render_edit_form(df, edit_id):
@@ -235,12 +350,12 @@ def render_edit_form(df, edit_id):
         })
         if ok:
             _refresh_excel_export()
-            st.session_state["edit_done_message"] = msg
+            st.session_state["pending"] = ("edit", msg)
+            st.session_state["hl_id"] = edit_id  # 修正した行を装飾する
             st.session_state.pop("edit_id", None)
-            st.rerun()
         else:
-            st.error(msg)
-            st.toast(msg, icon="⚠️")
+            st.session_state["pending"] = ("warn", msg)
+        st.rerun()
     if c2.button("キャンセル", use_container_width=True, key="e_cancel" + k):
         st.session_state.pop("edit_id", None)
         st.rerun()
@@ -250,11 +365,12 @@ def render_edit_form(df, edit_id):
         ok, msg = delete_record(edit_id)
         if ok:
             _refresh_excel_export()
-            st.session_state["edit_done_message"] = msg
+            st.session_state["pending"] = ("edit", msg)
+            st.session_state["hl_id"] = None
             st.session_state.pop("edit_id", None)
-            st.rerun()
         else:
-            st.error(msg)
+            st.session_state["pending"] = ("warn", msg)
+        st.rerun()
 
 
 with tab_history:
@@ -276,8 +392,13 @@ with tab_history:
                            "fuel_unit_price", "fuel_cost", "efficiency_km_per_l", "note"]].copy()
         show_df["record_date"] = show_df["record_date"].dt.strftime("%Y/%m/%d")
         show_df.columns = ["日付", "メーター(km)", "走行距離(km)", "給油量(L)", "単価(円/L)", "金額(円)", "燃費(km/L)", "メモ"]
+        hl_id = st.session_state.get("hl_id")
+        table = show_df
+        if hl_id is not None and (ordered["id"] == hl_id).any():
+            hl_pos = int((ordered["id"] == hl_id).to_numpy().nonzero()[0][0])
+            table = style_highlight(show_df, hl_pos)
         event = st.dataframe(
-            show_df,
+            table,
             use_container_width=True,
             hide_index=True,
             height=600,
@@ -312,3 +433,59 @@ with tab_history:
                     st.write(res["summary"])
                     if res["rows"]:
                         st.dataframe(res["rows"], use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------------------------
+# 画面の最後：タブ切替・入力欄の補助（要確認の仕掛け）とポップアップ
+# ---------------------------------------------------------------------------
+# 要確認の仕掛け（Streamlitの更新で動かなくなる可能性がある）
+#  1. 「履歴を見る」を押した直後だけ、履歴タブを自動で開く
+#  2. 「新しい記録を追加」タブを押したら、履歴の装飾を消す
+#  3. 値が0の数値欄をタップしたら全選択する（そのまま入力すると置き換わる）
+# 2・3 は親ページ側に1回だけ設置する（iframeが消えても働き続けるため）。
+if S.get("go_history"):
+    S["go_history"] = False
+    components.html(
+        """<script>
+        const tabs = window.parent.document.querySelectorAll('button[role="tab"]');
+        for (const t of tabs) { if (t.innerText.includes('履歴')) { t.click(); break; } }
+        </script>""",
+        height=0,
+    )
+
+components.html(
+    """<script>
+    const P = window.parent;
+    if (!P.__fuelInit) {
+      const sc = P.document.createElement('script');
+      sc.textContent = `
+        window.__fuelInit = true;
+        document.addEventListener('click', (e) => {
+          const t = e.target.closest && e.target.closest('button[role="tab"]');
+          if (t && t.innerText.includes('新しい記録')) {
+            const b = document.querySelector('.st-key-hlclear button');
+            if (b) b.click();
+          }
+        }, true);
+        document.addEventListener('focusin', (e) => {
+          const el = e.target;
+          if (el && el.tagName === 'INPUT' && el.type === 'number' && parseFloat(el.value) === 0) {
+            setTimeout(() => el.select(), 0);
+          }
+        });`;
+      P.document.head.appendChild(sc);
+    }
+    </script>""",
+    height=0,
+)
+
+_pending = S.get("pending")
+if _pending:
+    S["pending"] = None
+    _kind, _payload = _pending
+    if _kind == "done":
+        dialog_record_done(_payload)
+    elif _kind == "warn":
+        dialog_warn(_payload)
+    else:
+        dialog_edit_done(_payload)

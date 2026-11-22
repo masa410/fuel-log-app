@@ -46,6 +46,25 @@ def new_of(rid, df, **over):
     return d
 
 
+class DuplicateTests(unittest.TestCase):
+    def test_same_date_odo_liters_is_duplicate(self):
+        df = make_df(BASE)
+        self.assertTrue(re_.is_duplicate_of_last(df, date(2026, 10, 1), 11300, 28.0))
+
+    def test_any_difference_is_not_duplicate(self):
+        df = make_df(BASE)
+        self.assertFalse(re_.is_duplicate_of_last(df, date(2026, 10, 2), 11300, 28.0))
+        self.assertFalse(re_.is_duplicate_of_last(df, date(2026, 10, 1), 11301, 28.0))
+        self.assertFalse(re_.is_duplicate_of_last(df, date(2026, 10, 1), 11300, 27.9))
+
+    def test_only_last_record_is_compared(self):
+        df = make_df(BASE)
+        self.assertFalse(re_.is_duplicate_of_last(df, date(2026, 9, 20), 10800, 20.0))
+
+    def test_empty_is_not_duplicate(self):
+        self.assertFalse(re_.is_duplicate_of_last(make_df([]), date(2026, 10, 1), 1, 1))
+
+
 class EditTests(unittest.TestCase):
     def setUp(self):
         self.df = make_df(BASE)
