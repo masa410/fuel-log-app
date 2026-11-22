@@ -141,6 +141,19 @@ class AddFlowTests(unittest.TestCase):
         self.assertEqual(at.number_input(key="f_liters").value, 0.0)
         self.assertFalse(self.record_button(at).disabled)
 
+    def test_unit_price_is_auto_calculated_from_cost_and_liters(self):
+        at = self.make_app()
+        at.number_input(key="f_liters").set_value(30.0)
+        at.number_input(key="f_cost").set_value(5100.0)
+        at.run()
+        price = [n for n in at.number_input if n.label.startswith("給油単価")][0]
+        self.assertEqual(price.value, 170.0)
+        # 金額を変えたら、自動計算も追従する
+        at.number_input(key="f_cost").set_value(5400.0)
+        at.run()
+        price = [n for n in at.number_input if n.label.startswith("給油単価")][0]
+        self.assertEqual(price.value, 180.0)
+
     def test_record_then_form_resets_and_button_locks(self):
         at = self.make_app()
         self.fill(at, 11700.0, 30.0)

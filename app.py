@@ -233,12 +233,15 @@ with tab_add:
         "給油金額 (円・任意)", min_value=0.0, step=100.0, key="f_cost", on_change=clear_highlight,
     )
 
+    # 自動計算の欄：金額・給油量が変わって初期値が変わったら、作り直して新しい値を出す
+    # （keyに初期値を含める。keyだけだと、一度入った値が残って自動計算が反映されない）
+    price_default = round(fuel_cost / fuel_liters, 1) if (fuel_cost > 0 and fuel_liters > 0) else 0.0
     fuel_unit_price = st.number_input(
         "給油単価 (円/L・任意。金額と給油量から自動計算されます)",
         min_value=0.0,
-        value=round(fuel_cost / fuel_liters, 1) if (fuel_cost > 0 and fuel_liters > 0) else 0.0,
+        value=price_default,
         step=1.0,
-        key=f"f_price_{S['form_nonce']}",
+        key=f"f_price_{S['form_nonce']}_{price_default}",
         on_change=clear_highlight,
     )
 
